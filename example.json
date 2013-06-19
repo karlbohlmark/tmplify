@@ -1,0 +1,16 @@
+{
+	"name": "Karl Böhlmark",
+	"email": "karl.bohlmark@gmail.com",
+	"tel": "073-533 12 68",
+	"description": "Results oriented, full stack software developer with a passion for developing businesses using technology",
+	"assignments": [{
+		"title":	"Convoy",
+		"description": "Built cluster analytics single page application"
+	}, {
+		"title": "L4 Mobile",
+		"description": "Built mobile web sales support for TV4"
+	},{
+		"title": "ReConnect",
+		"description": "Rebuilt Cision's communication platform for PR and IR"
+	}]
+}
