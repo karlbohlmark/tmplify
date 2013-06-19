@@ -32,7 +32,6 @@ function toTemplateDOM(dom) {
 
 function visitTemplateRoot (node, parentNode) {
 	if (node.type != 'tag') {
-
 		throw new Error('Top level should be a tag');
 	}
 
@@ -127,8 +126,6 @@ function output(node) {
 		console.log(node)
 	}
 
-
-
 	switch (node.type) {
 		case 'FunctionDeclaration':
 			return call(node)
@@ -167,13 +164,13 @@ function concatLiteral(node) {
 
 function startTag(tag) {
 	return  concatLiteral(
-						b.literal('<div>')
+						b.literal('<' + tag.name + '>')
 					)
 }
 
 function endTag(tag) {
 	return  concatLiteral(
-					b.literal('</div>')
+					b.literal('</' + tag.name + '>')
 				)
 }
 
@@ -200,8 +197,11 @@ function singleExport(expression) {
 }
 
 var i = 0
-function nameFromTag(node){
-	return node.type + i++;
+
+var names = []
+
+function nameFromTag(node) {
+	return node.name + i++;
 }
 
 function last(arr) {
