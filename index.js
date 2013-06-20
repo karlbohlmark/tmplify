@@ -17,6 +17,8 @@ var handler = new htmlparser.DomHandler(htmlParseDone);
 var parser = new htmlparser.Parser(handler);
 process.stdin.pipe(parser);
 
+var namer = new FunctionNamer()
+
 function htmlParseDone (err, dom) {
 		if (err) throw err;
 
@@ -101,7 +103,6 @@ function visitTemplateRoot (node, parentNode) {
 	console.log(escodegen.generate(program));
 }
 
-
 function entryStatement(entry) {
 	if (entry.type == 'FunctionDeclaration') {
 		return b.expressionStatement(
@@ -170,7 +171,7 @@ function visitTag(tag, parentJsNode) {
 
 	return declarations.concat([
 		b.functionDeclaration(
-			b.identifier(nameFromTag(tag)),
+			b.identifier(namer.name(tag)),
 			[ b.identifier('model'), b.identifier('buffer') ],
 			b.blockStatement(
 				[startTag(tag)].concat(append).concat([endTag(tag)])
@@ -258,13 +259,83 @@ function singleExport(expression) {
 	)
 }
 
-var i = 0
 
-var names = []
-
-function nameFromTag(node) {
-	return node.name + i++;
+function FunctionNamer() {
+	this.names = {}
 }
+
+FunctionNamer.prototype.name = function (node) {
+	return this['name_' + node.type].call(this, node)
+}
+
+FunctionNamer.prototype.firstAvailable = function () {
+	var strategies = arguments
+	return function (node) {
+		var strategy, name
+		for (var i=0; i<strategies.length; i++) {
+			strategy = strategies[i]
+			name = strategy(node)
+			if (!name) continue
+			if (this.isAvailable(name)) {
+				this.registerName(name, node)
+				return name
+			}
+		}
+
+		throw new Error('No available name found for node of type' + node.type)
+	}.bind(this)
+}
+
+FunctionNamer.prototype.registerName = function (name,node) {
+	this.names[name] = node
+}
+
+FunctionNamer.prototype.name_tag = function (node) {
+	return this.firstAvailable(
+			this.byClassName,
+			this.byTagName,
+			this.disambiguateByCounter(this.byTagName)
+	)(node)
+}
+
+FunctionNamer.prototype.name_each = function (node) {
+	return this.firstAvailable(
+			this.byTagName,
+			this.disambiguateByCounter(this.byTagName))
+}
+
+FunctionNamer.prototype.disambiguateByCounter = function (strategy) {
+	var i = 0
+	var candidate
+	return function (node) {
+		var name = strategy(node)
+		while (!this.isAvailable(candidate = name + '_' + i++))
+			;
+		return candidate;
+	}.bind(this)
+}
+
+FunctionNamer.prototype.isAvailable = function (name) {
+	return !this.names.hasOwnProperty(name)
+}
+
+FunctionNamer.prototype.byTagName = function (node) {
+	return node.name
+}
+
+FunctionNamer.prototype.byClassName = function (node) {
+	var cls = node.attribs && node.attribs['class']
+	return cls && cls.split(' ').map(identifierify).join('_')
+}
+
+FunctionNamer.prototype.byLoopVar = function (eachNode) {
+	return eachNode.loopVar
+}
+
+function identifierify(str) {
+	return str.replace('-', '_')
+}
+
 
 function last(arr) {
 	return index(-1)(arr)
