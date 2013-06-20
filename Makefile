@@ -1,6 +1,10 @@
 test:
 	mocha
 
-run:
-	cat example.html | node index.js	
+example:
+	@cat example.html | node index.js	
+
+cv:
+	@cat cv.html | node index.js	
+
 .PHONY: test
