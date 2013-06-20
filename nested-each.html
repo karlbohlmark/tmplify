@@ -1,0 +1,48 @@
+
+<div each="product in model.products">
+	<ul>
+		<li each="tag in product.tags">
+			$(product.name) $(tag)
+		</li>
+	</ul>
+</div>
+
+<!--
+
+function li(tag, product, model) {
+	var buffer = ""
+	buffer += '<li>'
+	buffer += product.name
+	buffer += ' '
+	buffer += tag
+	buffer += '</li>'
+}
+
+function product_ul(product, model) {
+	var buffer = ""
+	product.tags.reduce(function (buffer, tag) {
+		return buffer += li(tag, product, model)
+	}, buffer)
+	return buffer
+}
+
+function product_list(model) {
+	var buffer = ""
+	model.products.reduce(function (buffer, product) {
+		return buffer += div(model, product)
+	}, buffer)
+	return buffer	
+}
+
+function product_div(product, model) {
+	var buffer = ""
+	buffer += '<div>'
+	buffer += product_ul(product, model)
+	buffer += '</div>'
+	return buffer	
+}
+
+module.exports = ul
+module.exports.li = li
+
+-->

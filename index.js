@@ -155,7 +155,7 @@ function functionDeclarations(arr) {
 	})
 }
 
-function visitTag(tag, parentJsNode) {
+function visitTag(tag) {
 	log.debug(tag)
 
 	if (!tag.name) {
@@ -167,14 +167,14 @@ function visitTag(tag, parentJsNode) {
 	var declarations = flatten(children).filter(function (t) {
 			return t.type === 'FunctionDeclaration' })
 	
-	var append = topLevel.filter(defined).map(output)
+	var body = topLevel.filter(defined).map(output)
 
 	return declarations.concat([
 		b.functionDeclaration(
 			b.identifier(namer.name(tag)),
 			[ b.identifier('model'), b.identifier('buffer') ],
 			b.blockStatement(
-				[startTag(tag)].concat(append).concat([endTag(tag)])
+				startTag(tag).concat(body).concat(endTag(tag))
 			)
 		)
 	])
@@ -194,7 +194,7 @@ function output(node) {
 			return call(node)
 			break;
 		case 'Literal':
-			return concatLiteral(node)
+			return concatBuffer(node)
 			break;
 		default:
 			throw new Error('Unknown output type: ' + JSON.stringify(node))
@@ -212,29 +212,35 @@ function call (functionDeclaration) {
 					)
 }
 
-function concatLiteral(node) {
+function concatBuffer(node) {
 	return  b.expressionStatement(
-						b.callExpression(
-							b.memberExpression(
-								b.identifier('buffer'),
-								b.identifier('push'),
-								false
-							),
-							[node]
+						b.assignmentExpression(
+							'+=',	
+							b.identifier('buffer'),
+							node
 						)
 					)
 }
 
 function startTag(tag) {
-	return  concatLiteral(
-						b.literal('<' + tag.name + '>')
-					)
+	return  outputAll.apply(null,
+					[			
+						'<' + tag.name,
+						'>'
+					].map(b.literal))
+}
+
+function outputAll () {
+	var theThings = [].slice.call(arguments)
+	return flatten(theThings).map(concatBuffer)
 }
 
 function endTag(tag) {
-	return  concatLiteral(
-					b.literal('</' + tag.name + '>')
-				)
+	return  [
+						concatBuffer(
+							b.literal('</' + tag.name + '>')
+						)
+					]
 }
 
 function declareEmptyArray(varName) {
