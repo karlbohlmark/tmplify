@@ -45,7 +45,7 @@ function ifTransform (node) {
 			consequent: node
 		}
 	} else {
-		console.log('ATTRS', node.attribs)
+		//console.log('ATTRS', node.attribs)
 	}
 	return node
 }
@@ -74,15 +74,14 @@ function visitTemplateRoot (node, parentNode) {
 
 	var program = b.program(
 			concat(
-				bufferInit,
-				fnDeclarations,
-				singleExport(
+				fnDeclarations,					// function myPartial1..N (model, buffer) {...}
+				singleExport(												// module.exports =
 					b.functionExpression(
 						b.identifier("main"),
 						[b.identifier("model")],
-						b.blockStatement([
-							declareEmptyArray('buffer'),
-							entryStatement(entry),
+						b.blockStatement([							// = function main (model) { 
+							declareEmptyArray('buffer'), 	// 		var buffer = [];
+							entryStatement(entry),				// 		entryFn(model, buffer)
 							b.returnStatement(
 								b.callExpression(
 									b.memberExpression(
@@ -90,10 +89,9 @@ function visitTemplateRoot (node, parentNode) {
 										b.identifier("join"),
 										false
 									),
-									[b.literal("")]
+									[b.literal("")]						// 		return buffer.join("")
 								)
 							)
-
 						])
 					)
 				)
@@ -138,9 +136,6 @@ function visitIf(node) {
 	var cons = visit(node.consequent)
 	var consBlock = cons[cons.length-1]
 
-	console.log('BODY')
-	console.log(consBlock)
-
 	var body = consBlock.body.body
 	consBlock.body.body = [b.ifStatement(
 			b.identifier(node.test),
@@ -150,9 +145,7 @@ function visitIf(node) {
 
 	var declarations = functionDeclarations(cons)
 
-	return declarations.concat([
-		consBlock
-	])
+	return declarations
 }
 
 function functionDeclarations(arr) {
