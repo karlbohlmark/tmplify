@@ -55,12 +55,31 @@ function ifTransform (node) {
 	return node
 }
 
+function eachTransform (node) {
+	var attrs = node.attribs
+	var each = attrs && attrs.each
+	if (each) {
+		delete attrs.each
+		var parts = each.split(' ')
+		return {
+			type: 'each',
+			loopVar: parts.shift(),
+			enumerable: parts.pop(),
+			children: [node]
+		}
+	} else {
+		//console.log('ATTRS', node.attribs)
+	}
+	return node
+}
+
 function visitTemplateRoot (node, parentNode) {
 	if (node.type != 'tag') {
 		throw new Error('Top level should be a tag');
 	}
 
 	node = traverseDepthFirst(node, ifTransform)
+	node = traverseDepthFirst(node, eachTransform)
 	//traverseDepthFirst(node, eachTransform)
 
 	var body = visit(node);
@@ -113,12 +132,16 @@ function entryStatement(entry) {
 				b.identifier(entry.id.name),
 				[b.identifier('model'), b.identifier('buffer')]
 			)
-		)	
+		)
 	}
 
 	if (entry.type == 'IfStatement') {
 		return entry
-	}	
+	}
+
+	if (entry.type == 'CallExpression') {
+		return b.expressionStatement(entry)
+	}
 }
 
 function visit(node) {
@@ -131,6 +154,8 @@ function visit(node) {
 			break;
 		case 'if':
 			return visitIf(node)
+		case 'each':
+			return visitEach(node)
 		default:
 			throw new Error('unknown type', node)
 	}
@@ -150,6 +175,41 @@ function visitIf(node) {
 	var declarations = functionDeclarations(cons)
 
 	return declarations
+}
+
+function visitEach(node) {
+	console.log(node)
+	var children = node.children.map(visit)
+	var declarations = flatten(children).filter(function (t) {
+			return t.type === 'FunctionDeclaration' })
+	var topLevel = children.map(last)
+	return concat(
+		declarations,
+		b.callExpression(
+			b.memberExpression(
+				b.memberExpression(
+					b.identifier('model'),
+					b.identifier(node.enumerable),
+					false
+				),
+				b.identifier('reduce'),
+				false
+			),
+			[
+				b.functionExpression(
+						b.identifier("each"),
+						[b.identifier('buffer'), b.identifier(node.loopVar)],
+						b.blockStatement(concat(
+							topLevel.map(output),
+							b.returnStatement(
+								b.identifier('buffer')
+							)
+						))
+				),
+				b.literal("")
+			]
+		)
+	)
 }
 
 function functionDeclarations(arr) {
@@ -210,7 +270,7 @@ function visitText(tag) {
 
 function visitAttr(attr) {
 	console.log(attr)
-	var res = [b.literal(attr.key)]
+	var res = [b.literal(' ' + attr.key)]
 	var val = attr.value
 	if (typeof val != 'undefined') {
 		res.push(b.literal('='))
@@ -230,9 +290,12 @@ function output(node) {
 
 	switch (node.type) {
 		case 'FunctionDeclaration':
-			return call(node)
+			return concatBuffer( call(node) )
 			break;
 		case 'Literal':
+			return concatBuffer(node)
+			break;
+		case 'CallExpression':
 			return concatBuffer(node)
 			break;
 		default:
@@ -243,12 +306,11 @@ function output(node) {
 function call (functionDeclaration) {
 	log.debug(functionDeclaration)
 
-	return  b.expressionStatement(
-						b.callExpression(
-					 		b.identifier(functionDeclaration.id.name),
-							[b.identifier('model'), b.identifier('buffer')]
-						)
+	return 	b.callExpression(
+				 		b.identifier(functionDeclaration.id.name),
+						[b.identifier('model'), b.identifier('buffer')]
 					)
+					
 }
 
 function concatBuffer(node) {
