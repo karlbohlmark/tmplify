@@ -14,6 +14,15 @@ var log = {
 
 var handler = new htmlparser.DomHandler(htmlParseDone);
 
+var scopes = ['model']
+
+function enterScope(s) {
+	scopes.unshift(s)
+}
+function exitScope(s) {
+	scopes.shift(s)
+}
+
 var parser = new htmlparser.Parser(handler);
 process.stdin.pipe(parser);
 
@@ -179,19 +188,19 @@ function visitIf(node) {
 
 function visitEach(node) {
 	console.log(node)
+
+	var enumerable = resolve(node.enumerable)
+	enterScope(node.loopVar)
 	var children = node.children.map(visit)
+
 	var declarations = flatten(children).filter(function (t) {
 			return t.type === 'FunctionDeclaration' })
 	var topLevel = children.map(last)
-	return concat(
+	var result = concat(
 		declarations,
 		b.callExpression(
 			b.memberExpression(
-				b.memberExpression(
-					b.identifier('model'),
-					b.identifier(node.enumerable),
-					false
-				),
+				b.identifier(enumerable),
 				b.identifier('reduce'),
 				false
 			),
@@ -210,6 +219,20 @@ function visitEach(node) {
 			]
 		)
 	)
+
+	exitScope(node.loopVar)
+	return result
+}
+
+function resolve(name) {
+	var parts = name.split('.')
+	var nameInScope = parts.shift()
+	if ( scopes.indexOf(nameInScope) == -1) {
+		console.log('SCOPES', scopes, nameInScope)
+		return 'model.' + name
+	} else {
+		return name
+	}
 }
 
 function functionDeclarations(arr) {
@@ -235,7 +258,7 @@ function visitTag(tag) {
 	return declarations.concat([
 		b.functionDeclaration(
 			b.identifier(namer.name(tag)),
-			[ b.identifier('model')],
+			scopes.map(b.identifier),
 			b.blockStatement(
 				concat(
 					declareEmptyBuffer(),
@@ -308,7 +331,7 @@ function call (functionDeclaration) {
 
 	return 	b.callExpression(
 				 		b.identifier(functionDeclaration.id.name),
-						[b.identifier('model'), b.identifier('buffer')]
+						scopes.map(b.identifier)
 					)
 					
 }
