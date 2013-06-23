@@ -187,10 +187,9 @@ function visitIf(node) {
 }
 
 function visitEach(node) {
-	console.log(node)
-
 	var enumerable = resolve(node.enumerable)
-	enterScope(node.loopVar)
+	var loopVar = loopVarParamName(node.loopVar)
+	enterScope(loopVar)
 	var children = node.children.map(visit)
 
 	var declarations = flatten(children).filter(function (t) {
@@ -206,8 +205,8 @@ function visitEach(node) {
 			),
 			[
 				b.functionExpression(
-						b.identifier("each"),
-						[b.identifier('buffer'), b.identifier(node.loopVar)],
+						b.identifier(""),
+						[b.identifier('buffer'), b.identifier(loopVar)],
 						b.blockStatement(concat(
 							topLevel.map(output),
 							b.returnStatement(
@@ -220,8 +219,15 @@ function visitEach(node) {
 		)
 	)
 
-	exitScope(node.loopVar)
+	exitScope(loopVar)
 	return result
+}
+
+function loopVarParamName(name) {
+	while(!namer.isAvailable(name) || scopes.indexOf(name)!=-1) {
+		name = '_' + name
+	}
+	return name
 }
 
 function resolve(name) {
@@ -292,7 +298,6 @@ function visitText(tag) {
 }
 
 function visitAttr(attr) {
-	console.log(attr)
 	var res = [b.literal(' ' + attr.key)]
 	var val = attr.value
 	if (typeof val != 'undefined') {
@@ -450,7 +455,7 @@ FunctionNamer.prototype.disambiguateByCounter = function (strategy) {
 }
 
 FunctionNamer.prototype.isAvailable = function (name) {
-	return !this.names.hasOwnProperty(name)
+	return !this.names.hasOwnProperty(name) && scopes.indexOf(name) == -1
 }
 
 FunctionNamer.prototype.byTagName = function (node) {
