@@ -40,10 +40,13 @@ function traverseDepthFirst (tree, fn) {
 }
 
 function ifTransform (node) {
-	if (node.attribs && typeof node.attribs['if'] != 'undefined') {
+	var attrs = node.attribs
+	var test = attrs && typeof attrs['if'] != 'undefined' && attrs['if']
+	if (test) {
+		delete attrs['if']
 		return {
 			type: 'if',
-			test: node.attribs['if'],
+			test: test,
 			consequent: node
 		}
 	} else {
@@ -172,16 +175,52 @@ function visitTag(tag) {
 	return declarations.concat([
 		b.functionDeclaration(
 			b.identifier(namer.name(tag)),
-			[ b.identifier('model'), b.identifier('buffer') ],
+			[ b.identifier('model')],
 			b.blockStatement(
-				startTag(tag).concat(body).concat(endTag(tag))
+				concat(
+					declareEmptyBuffer(),
+					startTag(tag),
+					body,
+					endTag(tag),
+					returnBuffer()
+				)
 			)
 		)
 	])
 }
 
+function declareEmptyBuffer() {
+	return b.variableDeclaration('var', [
+		b.variableDeclarator(
+			b.identifier('buffer'),
+			b.literal("")
+		)
+	])
+}
+
+function returnBuffer() {
+	return b.returnStatement(
+		b.identifier('buffer')
+	)
+}
+
 function visitText(tag) {
 	return [b.literal(tag.data)]
+}
+
+function visitAttr(attr) {
+	console.log(attr)
+	var res = [b.literal(attr.key)]
+	var val = attr.value
+	if (typeof val != 'undefined') {
+		res.push(b.literal('='))
+		if (val.indexOf(' ')>=0) {
+			val = '"' + val + '"'
+		}
+		res.push(b.literal(val))
+	}
+
+	return res
 }
 
 function output(node) {
@@ -223,11 +262,15 @@ function concatBuffer(node) {
 }
 
 function startTag(tag) {
-	return  outputAll.apply(null,
-					[			
-						'<' + tag.name,
-						'>'
-					].map(b.literal))
+	var out = [b.literal('<' + tag.name)]
+	tag.attribs && Object.keys(tag.attribs).forEach(function (key) {
+		//console.log('OUT', key, tag.attribs[key])
+		visitAttr({key: key, value: tag.attribs[key]}).map(function (aa) {
+			out.push(aa)
+		})
+	})
+	out.push(b.literal('>'))
+	return outputAll.apply(null, out)
 }
 
 function outputAll () {
