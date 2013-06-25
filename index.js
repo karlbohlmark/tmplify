@@ -56,7 +56,7 @@ function ifTransform (node) {
 		return {
 			type: 'if',
 			test: test,
-			consequent: node
+			children: [node]
 		}
 	} else {
 		//console.log('ATTRS', node.attribs)
@@ -89,6 +89,7 @@ function visitTemplateRoot (node, parentNode) {
 
 	node = traverseDepthFirst(node, ifTransform)
 	node = traverseDepthFirst(node, eachTransform)
+	//console.log(require('util').inspect(node.children, {depth:5}))
 	//traverseDepthFirst(node, eachTransform)
 
 	var body = visit(node);
@@ -171,19 +172,21 @@ function visit(node) {
 }
 
 function visitIf(node) {
-	var cons = visit(node.consequent)
-	var consBlock = cons[cons.length-1]
+	var children = node.children && node.children.map(visit) || []
+	var topLevel = children.map(last)
+	var declarations = flatten(children).filter(function (t) {
+			return t.type === 'FunctionDeclaration' })
+		
+	var body = topLevel.filter(defined).map(output)
 
-	var body = consBlock.body.body
-	consBlock.body.body = [b.ifStatement(
+	return declarations.concat([
+		b.ifStatement(
 			b.identifier(node.test),
-			b.blockStatement(body)
+			b.blockStatement(
+					body
+			)
 		)
-	]
-
-	var declarations = functionDeclarations(cons)
-
-	return declarations
+	])
 }
 
 function visitEach(node) {
@@ -234,7 +237,7 @@ function resolve(name) {
 	var parts = name.split('.')
 	var nameInScope = parts.shift()
 	if ( scopes.indexOf(nameInScope) == -1) {
-		console.log('SCOPES', scopes, nameInScope)
+		//console.log('SCOPES', scopes, nameInScope)
 		return 'model.' + name
 	} else {
 		return name
@@ -255,11 +258,17 @@ function visitTag(tag) {
 	}
 
 	var children = tag.children && tag.children.map(visit) || []
-	var topLevel = children.map(last)
+
+	var topLevel = children.map(function (c) {
+		return c[c.length-1]
+	})
 	var declarations = flatten(children).filter(function (t) {
 			return t.type === 'FunctionDeclaration' })
 	
 	var body = topLevel.filter(defined).map(output)
+
+	//console.log('-- BODY --', tag.name)
+	//console.log(body)
 
 	return declarations.concat([
 		b.functionDeclaration(
@@ -294,7 +303,8 @@ function returnBuffer() {
 }
 
 function visitText(tag) {
-	return [b.literal(tag.data)]
+	var i = interpolate(tag.data)
+	return [interpolate(tag.data)]//[b.literal(tag.data)]
 }
 
 function visitAttr(attr) {
@@ -323,6 +333,15 @@ function output(node) {
 		case 'Literal':
 			return concatBuffer(node)
 			break;
+		case 'Identifier':
+			return concatBuffer(node)
+			break;
+		case 'IfStatement':
+			return node
+			break;
+		case 'BlockStatement':
+			return node
+			break;
 		case 'CallExpression':
 			return concatBuffer(node)
 			break;
@@ -349,6 +368,29 @@ function concatBuffer(node) {
 							node
 						)
 					)
+}
+
+function interpolate(text) {
+	var interpolationPattern = /\$\{([^\}]*)\}/
+	var index, pieces = []
+	if (interpolationPattern.test(text)) {
+		while(match = interpolationPattern.exec(text)) {
+			index = text.indexOf(match[0])
+			if (index) {
+				pieces.push(b.literal(text.substring(0, index)))
+			}
+
+			pieces.push(b.identifier(match[1]))
+			text = text.slice(index + match[0].length)
+		}
+		if (text.length > 0) {
+			pieces.push(b.literal(text))
+		}
+	} else {
+		pieces.push(b.literal(text))
+	}
+
+	return b.blockStatement(pieces.map(output));
 }
 
 function startTag(tag) {
@@ -401,10 +443,18 @@ function singleExport(expression) {
 
 function FunctionNamer() {
 	this.names = {}
+	this.aliases = {}
 }
 
 FunctionNamer.prototype.name = function (node) {
-	return this['name_' + node.type].call(this, node)
+	var name = this['name_' + node.type].call(this, node)
+	if (node.attribs && node.attribs.exports) {
+		if (name in this.names.aliases) {
+			throw new Error('Duplicate export name ' + node.attribs.exports)
+		}
+		this.names.aliases[name] = node.attribs.exports
+	}
+	return name
 }
 
 FunctionNamer.prototype.firstAvailable = function () {
@@ -477,7 +527,7 @@ function identifierify(str) {
 
 
 function last(arr) {
-	return index(-1)(arr)
+	return arr[arr.length-1]
 }
 
 function index(i) {
