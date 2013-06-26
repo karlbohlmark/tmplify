@@ -111,20 +111,13 @@ function visitTemplateRoot (node, parentNode) {
 				fnDeclarations,					// function myPartial1..N (model, buffer) {...}
 				singleExport(												// module.exports =
 					b.functionExpression(
-						b.identifier("main"),
+						b.identifier(""),
 						[b.identifier("model")],
 						b.blockStatement([							// = function main (model) { 
-							declareEmptyArray('buffer'), 	// 		var buffer = [];
+							declareEmptyBuffer(), 	// 		var buffer = "";
 							entryStatement(entry),				// 		entryFn(model, buffer)
 							b.returnStatement(
-								b.callExpression(
-									b.memberExpression(
-										b.identifier("buffer"),
-										b.identifier("join"),
-										false
-									),
-									[b.literal("")]						// 		return buffer.join("")
-								)
+								b.identifier("buffer")
 							)
 						])
 					)
@@ -138,9 +131,12 @@ function visitTemplateRoot (node, parentNode) {
 function entryStatement(entry) {
 	if (entry.type == 'FunctionDeclaration') {
 		return b.expressionStatement(
-			b.callExpression(
-				b.identifier(entry.id.name),
-				[b.identifier('model'), b.identifier('buffer')]
+			b.assignmentExpression('+=',
+				b.identifier('buffer'),
+				b.callExpression(
+					b.identifier(entry.id.name),
+					[b.identifier('model')]
+				)
 			)
 		)
 	}
@@ -312,10 +308,13 @@ function visitAttr(attr) {
 	var val = attr.value
 	if (typeof val != 'undefined') {
 		res.push(b.literal('='))
-		if (val.indexOf(' ')>=0) {
-			val = '"' + val + '"'
-		}
-		res.push(b.literal(val))
+		res.push(b.literal("\""))
+		
+		interpolateSplit(val).forEach(function (literalOrIdentifier) {
+			res.push(literalOrIdentifier)
+		})
+
+		res.push(b.literal("\""))
 	}
 
 	return res
@@ -370,7 +369,15 @@ function concatBuffer(node) {
 					)
 }
 
+/**
+ * @return {Statement}
+ */
 function interpolate(text) {
+	var pieces = interpolateSplit(text)
+	return b.blockStatement(pieces.map(output));
+}
+
+function interpolateSplit(text) {
 	var interpolationPattern = /\$\{([^\}]*)\}/
 	var index, pieces = []
 	if (interpolationPattern.test(text)) {
@@ -380,7 +387,7 @@ function interpolate(text) {
 				pieces.push(b.literal(text.substring(0, index)))
 			}
 
-			pieces.push(b.identifier(match[1]))
+			pieces.push(b.identifier(resolve(match[1])))
 			text = text.slice(index + match[0].length)
 		}
 		if (text.length > 0) {
@@ -389,8 +396,7 @@ function interpolate(text) {
 	} else {
 		pieces.push(b.literal(text))
 	}
-
-	return b.blockStatement(pieces.map(output));
+	return pieces
 }
 
 function startTag(tag) {
