@@ -2,8 +2,11 @@ var htmlparser = require('htmlparser2');
 var escodegen = require('escodegen')
 var b = require('ast-types').builders;
 var n = require("ast-types").namedTypes;
+var resumer = require('resumer');
 //var bunyan = require('bunyan');
 //var log = bunyan.createLogger({name: "tmplify"});
+
+module.exports = compile
 
 var log = {
 	debug: function (msg) {
@@ -14,17 +17,48 @@ var log = {
 
 var handler = new htmlparser.DomHandler(htmlParseDone);
 
-var scopes = ['model']
-
-function enterScope(s) {
-	scopes.unshift(s)
-}
-function exitScope(s) {
-	scopes.shift(s)
-}
-
 var parser = new htmlparser.Parser(handler);
-process.stdin.pipe(parser);
+
+var scopeChain = new ScopeChain()
+
+if (!module.parent) {
+	compile(process.stdin)
+}
+
+
+function ScopeChain() {
+	this.scopes = ['model']
+}
+
+ScopeChain.prototype.enter = function (scope) {
+	this.scopes.unshift(scope)
+}
+
+ScopeChain.prototype.exit = function (scope) {
+	this.scopes.shift()
+}
+
+ScopeChain.prototype.contains = function (name) {
+	return this.scopes.indexOf(name) != -1
+}
+
+ScopeChain.prototype.map = function (f) {
+	return this.scopes.map(f)
+}
+
+
+function toStream(stringOrStream) {
+	if ("string" == typeof stringOrStream) {
+		return resumer().queue(stringOrStream).end()
+	}
+	return stringOrStream
+}
+
+
+function compile(readable) {
+	toStream(readable).pipe(parser);
+}
+
 
 var namer = new FunctionNamer()
 
@@ -35,11 +69,13 @@ function htmlParseDone (err, dom) {
 		toTemplateDOM(dom);
 }
 
+
 function toTemplateDOM(dom) {
 	var tmpl = {};
 
 	visitTemplateRoot(dom.shift(), tmpl);
 }
+
 
 function traverseDepthFirst (tree, fn) {
 	tree.children = tree.children && tree.children.map(function (child) {
@@ -47,6 +83,7 @@ function traverseDepthFirst (tree, fn) {
 	})
 	return fn(tree)
 }
+
 
 function ifTransform (node) {
 	var attrs = node.attribs
@@ -63,6 +100,7 @@ function ifTransform (node) {
 	}
 	return node
 }
+
 
 function eachTransform (node) {
 	var attrs = node.attribs
@@ -82,6 +120,28 @@ function eachTransform (node) {
 	return node
 }
 
+
+function textTransform (node) {
+	var attrs = node.attribs
+	var text = attrs && attrs.text
+	if (text) {
+		delete attrs.text
+		node.children = [{
+			type: 'text',
+			data: interpolationFormat(text)
+		}]
+	} else {
+		//console.log('ATTRS', node.attribs)
+	}
+	return node
+}
+
+
+function interpolationFormat(identifier) {
+	return "${" + identifier + "}"
+}
+
+
 function visitTemplateRoot (node, parentNode) {
 	if (node.type != 'tag') {
 		throw new Error('Top level should be a tag');
@@ -89,6 +149,8 @@ function visitTemplateRoot (node, parentNode) {
 
 	node = traverseDepthFirst(node, ifTransform)
 	node = traverseDepthFirst(node, eachTransform)
+	node = traverseDepthFirst(node, textTransform)
+
 	//console.log(require('util').inspect(node.children, {depth:5}))
 	//traverseDepthFirst(node, eachTransform)
 
@@ -127,6 +189,7 @@ function visitTemplateRoot (node, parentNode) {
 
 	console.log(escodegen.generate(program));
 }
+
 
 function entryStatement(entry) {
 	if (entry.type == 'FunctionDeclaration') {
@@ -188,7 +251,7 @@ function visitIf(node) {
 function visitEach(node) {
 	var enumerable = resolve(node.enumerable)
 	var loopVar = loopVarParamName(node.loopVar)
-	enterScope(loopVar)
+	scopeChain.enter(loopVar)
 	var children = node.children.map(visit)
 
 	var declarations = flatten(children).filter(function (t) {
@@ -218,12 +281,12 @@ function visitEach(node) {
 		)
 	)
 
-	exitScope(loopVar)
+	scopeChain.exit(loopVar)
 	return result
 }
 
 function loopVarParamName(name) {
-	while(!namer.isAvailable(name) || scopes.indexOf(name)!=-1) {
+	while(!namer.isAvailable(name) || scopeChain.contains(name)) {
 		name = '_' + name
 	}
 	return name
@@ -232,7 +295,7 @@ function loopVarParamName(name) {
 function resolve(name) {
 	var parts = name.split('.')
 	var nameInScope = parts.shift()
-	if ( scopes.indexOf(nameInScope) == -1) {
+	if (!scopeChain.contains(nameInScope)) {
 		//console.log('SCOPES', scopes, nameInScope)
 		return 'model.' + name
 	} else {
@@ -269,7 +332,7 @@ function visitTag(tag) {
 	return declarations.concat([
 		b.functionDeclaration(
 			b.identifier(namer.name(tag)),
-			scopes.map(b.identifier),
+			scopeChain.map(b.identifier),
 			b.blockStatement(
 				concat(
 					declareEmptyBuffer(),
@@ -354,7 +417,7 @@ function call (functionDeclaration) {
 
 	return 	b.callExpression(
 				 		b.identifier(functionDeclaration.id.name),
-						scopes.map(b.identifier)
+						scopeChain.map(b.identifier)
 					)
 					
 }
@@ -511,7 +574,7 @@ FunctionNamer.prototype.disambiguateByCounter = function (strategy) {
 }
 
 FunctionNamer.prototype.isAvailable = function (name) {
-	return !this.names.hasOwnProperty(name) && scopes.indexOf(name) == -1
+	return !this.names.hasOwnProperty(name) && !scopeChain.contains(name)
 }
 
 FunctionNamer.prototype.byTagName = function (node) {
