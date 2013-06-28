@@ -16,7 +16,6 @@ var log = {
 }
 
 var handler = new htmlparser.DomHandler(htmlParseDone);
-
 var parser = new htmlparser.Parser(handler);
 
 var scopeChain = new ScopeChain()
@@ -95,9 +94,8 @@ function ifTransform (node) {
 			test: test,
 			children: [node]
 		}
-	} else {
-		//console.log('ATTRS', node.attribs)
 	}
+
 	return node
 }
 
@@ -114,9 +112,8 @@ function eachTransform (node) {
 			enumerable: parts.pop(),
 			children: [node]
 		}
-	} else {
-		//console.log('ATTRS', node.attribs)
 	}
+
 	return node
 }
 
@@ -130,9 +127,8 @@ function textTransform (node) {
 			type: 'text',
 			data: interpolationFormat(text)
 		}]
-	} else {
-		//console.log('ATTRS', node.attribs)
 	}
+
 	return node
 }
 
@@ -325,9 +321,6 @@ function visitTag(tag) {
 			return t.type === 'FunctionDeclaration' })
 	
 	var body = topLevel.filter(defined).map(output)
-
-	//console.log('-- BODY --', tag.name)
-	//console.log(body)
 
 	return declarations.concat([
 		b.functionDeclaration(
