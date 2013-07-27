@@ -3,6 +3,7 @@ var escodegen = require('escodegen')
 var b = require('ast-types').builders;
 var n = require("ast-types").namedTypes;
 var resumer = require('resumer');
+var generateIdentifier = require('identifier')
 //var bunyan = require('bunyan');
 //var log = bunyan.createLogger({name: "tmplify"});
 
@@ -179,11 +180,25 @@ function visitTemplateRoot (node, parentNode) {
 							)
 						])
 					)
-				)
+				),
+				appendDeclarationsToExport(fnDeclarations)
 			)
 	)
 
 	console.log(escodegen.generate(program));
+}
+
+function appendDeclarationsToExport(fnDeclarations) {
+	return fnDeclarations.map(function (declaration) {
+		return  b.assignmentExpression('=',
+					b.memberExpression(
+						b.identifier('module'),
+						b.identifier('exports'),
+						false
+					),
+					declaration.id
+				)
+	})
 }
 
 
@@ -356,7 +371,7 @@ function returnBuffer() {
 
 function visitText(tag) {
 	var i = interpolate(tag.data)
-	return [interpolate(tag.data)]//[b.literal(tag.data)]
+	return interpolate(tag.data)//[b.literal(tag.data)]
 }
 
 function visitAttr(attr) {
@@ -425,12 +440,29 @@ function concatBuffer(node) {
 					)
 }
 
+function nameFromText(text) {
+	console.log('a' + text.replace(/[\.,\(\)\\\/=\-\n{}]/g, ''))
+	return 'a' + text.replace(/[\.,\(\)\\\/=\-\n{}]/g, '')
+}
+
 /**
  * @return {Statement}
  */
 function interpolate(text) {
 	var pieces = interpolateSplit(text)
-	return b.blockStatement(pieces.map(output));
+	f = b.functionDeclaration(
+			b.identifier(generateIdentifier(5)),
+			scopeChain.map(b.identifier),
+			b.blockStatement(
+				concat(
+					declareEmptyBuffer(),
+					b.blockStatement(pieces.map(output)),
+					returnBuffer()
+				)
+			)
+		)
+	//console.log(call(f))
+	return [f, call(f)];
 }
 
 function interpolateSplit(text) {
