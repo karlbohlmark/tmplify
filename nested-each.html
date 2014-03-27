@@ -1,48 +1,16 @@
-
-<div each="product in model.products">
-	<ul>
-		<li each="tag in product.tags">
-			$(product.name) $(tag)
-		</li>
-	</ul>
+<div id="order-items">
+    <div id="order-items-header">
+        <div></div>
+        <div>Product</div>
+        <div>Pcs shipped</div>
+        <div>Price / pcs</div>
+        <div>Amount</div>
+    </div>
+    <div data-bind="foreach: item in order.items">
+        <div><img data-bind="src: item.product.imageSmall"></div>
+        <div data-bind="text: item.product.name"></div>
+        <div data-bind="text: item.quantity"></div>
+        <div data-bind="text: item.price()"></div>
+        <div data-bind="text: item.total()"></div>
+    </div>
 </div>
-
-<!--
-
-function li(tag, product, model) {
-	var buffer = ""
-	buffer += '<li>'
-	buffer += product.name
-	buffer += ' '
-	buffer += tag
-	buffer += '</li>'
-}
-
-function product_ul(product, model) {
-	var buffer = ""
-	product.tags.reduce(function (buffer, tag) {
-		return buffer += li(tag, product, model)
-	}, buffer)
-	return buffer
-}
-
-function product_list(model) {
-	var buffer = ""
-	model.products.reduce(function (buffer, product) {
-		return buffer += div(model, product)
-	}, buffer)
-	return buffer	
-}
-
-function product_div(product, model) {
-	var buffer = ""
-	buffer += '<div>'
-	buffer += product_ul(product, model)
-	buffer += '</div>'
-	return buffer	
-}
-
-module.exports = ul
-module.exports.li = li
-
--->

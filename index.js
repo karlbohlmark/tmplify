@@ -1,44 +1,44 @@
 var htmlparser = require('htmlparser2');
 var escodegen = require('escodegen')
+var codegen = escodegen.generate;
 var b = require('ast-types').builders;
 var n = require("ast-types").namedTypes;
 var resumer = require('resumer');
 var generateIdentifier = require('identifier')
+var BindingAccessor = require('./binding-accessor')
+
 //var bunyan = require('bunyan');
 //var log = bunyan.createLogger({name: "tmplify"});
 
 module.exports = compile
 
-var log = {
-	debug: function (msg) {
+var log = { 
+	debug: function (msg) {
 		// console.log(arguments.callee.caller.name 
 		// 	+ "(" + arguments.callee.caller.caller.name + ")", msg)
 	}
 }
 
-var handler = new htmlparser.DomHandler(htmlParseDone);
-var parser = new htmlparser.Parser(handler);
-
 var scopeChain = new ScopeChain()
 
-if (!module.parent) {
-	compile(process.stdin)
-}
+//if (!module.parent) {
+//	compile(process.stdin;
+//}
 
 
 function ScopeChain() {
 	this.scopes = ['model']
 }
 
-ScopeChain.prototype.enter = function (scope) {
+ScopeChain.prototype.enter = function (scope) {
 	this.scopes.unshift(scope)
 }
 
-ScopeChain.prototype.exit = function (scope) {
+ScopeChain.prototype.exit = function (scope) {
 	this.scopes.shift()
 }
 
-ScopeChain.prototype.contains = function (name) {
+ScopeChain.prototype.contains = function (name) {
 	return this.scopes.indexOf(name) != -1
 }
 
@@ -55,8 +55,14 @@ function toStream(stringOrStream) {
 }
 
 
-function compile(readable) {
-	toStream(readable).pipe(parser);
+function compile(readable, cb) {
+	var handler = new htmlparser.DomHandler(function (err, dom) {
+		var str = toTemplateDOM(dom)
+		cb(null, str);
+	});
+	var parser = new htmlparser.Parser(handler);
+	parser.write(readable)
+	parser.end()
 }
 
 
@@ -65,20 +71,29 @@ var namer = new FunctionNamer()
 function htmlParseDone (err, dom) {
 		if (err) throw err;
 
-
-		toTemplateDOM(dom);
 }
 
 
 function toTemplateDOM(dom) {
 	var tmpl = {};
 
-	visitTemplateRoot(dom.shift(), tmpl);
+	if (dom.length > 1) {
+		dom = {
+			type: 'tag',
+			name: 'html',
+			attribs: {},
+			children: dom
+		}
+	} else {
+		dom = dom.shift()
+	}
+
+	return visitTemplateRoot(dom, tmpl);
 }
 
 
 function traverseDepthFirst (tree, fn) {
-	tree.children = tree.children && tree.children.map(function (child) {
+	tree.children = tree.children && tree.children.map(function (child) {
 		return traverseDepthFirst(child, fn)
 	})
 	return fn(tree)
@@ -100,19 +115,60 @@ function ifTransform (node) {
 	return node
 }
 
+function annotateWithBindings(node) {
+	if (node.type != 'tag') return node;
+	var bindingAccessor = new BindingAccessor(node)
+	var bindings = bindingAccessor.get();
+	node.bindings = bindings;
+	return node
+}
+
+function textBindingTransform(node) {
+	var text = binding('text', node.bindings);
+	if (!text) return node;
+	
+	if (!node.children) node.children = []
+	node.children.push({
+		type: 'text',
+		data: '${' + codegen(text.value) + '}'
+	})
+	return node
+}
+
+function binding(type, bindings) {
+
+}
+
+function srcBindingTransform(node) {
+	var src = binding('src', node.bindings);
+	if (!src) return node;
+	if (!node.attribs) node.attribs = {}
+
+	node.attribs.src = '${' + codegen(src.value) + '}'
+	return node
+}
+
+function parseBindingDeclaration(decl) {
+	console.log(decl)
+}
+
+function binding(type, bindings) {
+	return bindings && bindings.filter(function (b) {
+		return b.key == type
+	}).pop()
+}
 
 function eachTransform (node) {
-	var attrs = node.attribs
-	var each = attrs && attrs.each
+	var each = binding('foreach', node.bindings)
 	if (each) {
-		delete attrs.each
-		var parts = each.split(' ')
 		return {
 			type: 'each',
-			loopVar: parts.shift(),
-			enumerable: parts.pop(),
+			loopVar: codegen(each.value.left),
+			enumerable: codegen(each.value.right),
 			children: [node]
 		}
+	} else {
+		
 	}
 
 	return node
@@ -144,6 +200,9 @@ function visitTemplateRoot (node, parentNode) {
 		throw new Error('Top level should be a tag');
 	}
 
+	node = traverseDepthFirst(node, annotateWithBindings)
+	node = traverseDepthFirst(node, textBindingTransform)
+	node = traverseDepthFirst(node, srcBindingTransform)
 	node = traverseDepthFirst(node, ifTransform)
 	node = traverseDepthFirst(node, eachTransform)
 	node = traverseDepthFirst(node, textTransform)
@@ -180,12 +239,11 @@ function visitTemplateRoot (node, parentNode) {
 							)
 						])
 					)
-				),
-				appendDeclarationsToExport(fnDeclarations)
+				)
 			)
 	)
 
-	console.log(escodegen.generate(program));
+	return(escodegen.generate(program));
 }
 
 function appendDeclarationsToExport(fnDeclarations) {
@@ -220,7 +278,12 @@ function entryStatement(entry) {
 	}
 
 	if (entry.type == 'CallExpression') {
-		return b.expressionStatement(entry)
+		return b.expressionStatement(
+			b.assignmentExpression('+=',
+				b.identifier('buffer'),
+				entry
+			)
+		)
 	}
 }
 
@@ -240,6 +303,10 @@ function visit(node) {
 			throw new Error('unknown type', node)
 	}
 }
+
+
+
+
 
 function visitIf(node) {
 	var children = node.children && node.children.map(visit) || []
@@ -307,7 +374,6 @@ function resolve(name) {
 	var parts = name.split('.')
 	var nameInScope = parts.shift()
 	if (!scopeChain.contains(nameInScope)) {
-		//console.log('SCOPES', scopes, nameInScope)
 		return 'model.' + name
 	} else {
 		return name
@@ -315,7 +381,7 @@ function resolve(name) {
 }
 
 function functionDeclarations(arr) {
-	return arr.filter(function (item) {
+	return arr.filter(function (item) {
 		return item.type == 'FunctionDeclaration'
 	})
 }
@@ -381,7 +447,7 @@ function visitAttr(attr) {
 		res.push(b.literal('='))
 		res.push(b.literal("\""))
 		
-		interpolateSplit(val).forEach(function (literalOrIdentifier) {
+		interpolateSplit(val).forEach(function (literalOrIdentifier) {
 			res.push(literalOrIdentifier)
 		})
 
@@ -391,7 +457,7 @@ function visitAttr(attr) {
 	return res
 }
 
-function output(node) {
+function output(node) {
 	if (!node.type) {
 		console.log(node)
 	}
@@ -420,7 +486,7 @@ function output(node) {
 	}
 }
 
-function call (functionDeclaration) {
+function call (functionDeclaration) {
 	log.debug(functionDeclaration)
 
 	return 	b.callExpression(
@@ -466,7 +532,7 @@ function interpolate(text) {
 }
 
 function interpolateSplit(text) {
-	var interpolationPattern = /\$\{([^\}]*)\}/
+	var interpolationPattern = /\$\{([^\}]*)\}/m
 	var index, pieces = []
 	if (interpolationPattern.test(text)) {
 		while(match = interpolationPattern.exec(text)) {
@@ -489,7 +555,7 @@ function interpolateSplit(text) {
 
 function startTag(tag) {
 	var out = [b.literal('<' + tag.name)]
-	tag.attribs && Object.keys(tag.attribs).forEach(function (key) {
+	tag.attribs && Object.keys(tag.attribs).forEach(function (key) {
 		//console.log('OUT', key, tag.attribs[key])
 		visitAttr({key: key, value: tag.attribs[key]}).map(function (aa) {
 			out.push(aa)
@@ -534,13 +600,12 @@ function singleExport(expression) {
 	)
 }
 
-
-function FunctionNamer() {
+function FunctionNamer() {
 	this.names = {}
 	this.aliases = {}
 }
 
-FunctionNamer.prototype.name = function (node) {
+FunctionNamer.prototype.name = function (node) {
 	var name = this['name_' + node.type].call(this, node)
 	if (node.attribs && node.attribs.exports) {
 		if (name in this.names.aliases) {
@@ -551,15 +616,15 @@ FunctionNamer.prototype.name = function (node) {
 	return name
 }
 
-FunctionNamer.prototype.firstAvailable = function () {
+FunctionNamer.prototype.firstAvailable = function () {
 	var strategies = arguments
-	return function (node) {
+	return function (node) {
 		var strategy, name
 		for (var i=0; i<strategies.length; i++) {
 			strategy = strategies[i]
 			name = strategy(node)
 			if (!name) continue
-			if (this.isAvailable(name)) {
+			if (this.isAvailable(name)) {
 				this.registerName(name, node)
 				return name
 			}
@@ -573,7 +638,7 @@ FunctionNamer.prototype.registerName = function (name,node) {
 	this.names[name] = node
 }
 
-FunctionNamer.prototype.name_tag = function (node) {
+FunctionNamer.prototype.name_tag = function (node) {
 	return this.firstAvailable(
 			this.byClassName,
 			this.byTagName,
@@ -581,16 +646,16 @@ FunctionNamer.prototype.name_tag = function (node) {
 	)(node)
 }
 
-FunctionNamer.prototype.name_each = function (node) {
+FunctionNamer.prototype.name_each = function (node) {
 	return this.firstAvailable(
 			this.byTagName,
 			this.disambiguateByCounter(this.byTagName))
 }
 
-FunctionNamer.prototype.disambiguateByCounter = function (strategy) {
+FunctionNamer.prototype.disambiguateByCounter = function (strategy) {
 	var i = 0
 	var candidate
-	return function (node) {
+	return function (node) {
 		var name = strategy(node)
 		while (!this.isAvailable(candidate = name + '_' + i++))
 			;
@@ -598,34 +663,34 @@ FunctionNamer.prototype.disambiguateByCounter = function (strategy) {
 	}.bind(this)
 }
 
-FunctionNamer.prototype.isAvailable = function (name) {
+FunctionNamer.prototype.isAvailable = function (name) {
 	return !this.names.hasOwnProperty(name) && !scopeChain.contains(name)
 }
 
-FunctionNamer.prototype.byTagName = function (node) {
+FunctionNamer.prototype.byTagName = function (node) {
 	return node.name
 }
 
-FunctionNamer.prototype.byClassName = function (node) {
+FunctionNamer.prototype.byClassName = function (node) {
 	var cls = node.attribs && node.attribs['class']
 	return cls && cls.split(' ').map(identifierify).join('_')
 }
 
-FunctionNamer.prototype.byLoopVar = function (eachNode) {
+FunctionNamer.prototype.byLoopVar = function (eachNode) {
 	return eachNode.loopVar
 }
 
 function identifierify(str) {
-	return str.replace('-', '_')
+	return str.replace(/-/g, '_')
 }
 
 
-function last(arr) {
+function last(arr) {
 	return arr[arr.length-1]
 }
 
-function index(i) {
-	return function (arr) {
+function index(i) {
+	return function (arr) {
 		if (i < 0) {
 			i = Math.abs(arr.length - i) % arr.length;
 		}
@@ -642,20 +707,20 @@ function arrayWrap(item) {
 
 function concat(maybeArrsMaybeNot) {
 	var args = [].slice.call(arguments)
-	return args.reduce(function (acc, cur) {
-		arrayWrap(cur).forEach(function (item) {
+	return args.reduce(function (acc, cur) {
+		arrayWrap(cur).forEach(function (item) {
 				acc.push(item)
 		})
 		return acc
 	}, [])
 }
 
-function flatten(arr) {
-	return arr.reduce(function (acc, cur) {
+function flatten(arr) {
+	return arr.reduce(function (acc, cur) {
 		return acc.concat(cur)
 	}, [])
 }
 
-function defined(item) {
+function defined(item) {
 	return typeof item !== "undefined"
 }
